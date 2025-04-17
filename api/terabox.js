@@ -1,62 +1,40 @@
-import axios from "axios";
+// File: api/terabox.js
 
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36";
+import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
   const { url } = req.query;
-
-  if (!url || !url.includes("/s/")) {
-    return res.status(400).json({ error: "Missing or invalid Terabox URL" });
+  if (!url || !url.includes("terabox.com/s/")) {
+    return res.status(400).json({ error: 'Invalid Terabox share URL' });
   }
 
   try {
-    const shorturl = url.match(/\/s\/([a-zA-Z0-9]+)/)[1];
+    const headers = {
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': url,
+    };
 
-    const infoRes = await axios.get(
-      "https://api.terabox.com/rest/2.0/share/linkinfo",
-      {
-        params: {
-          method: "linkinfo",
-          shorturl,
-          app_id: "250528",
-        },
-        headers: {
-          "User-Agent": USER_AGENT,
-        },
-      }
-    );
+    const shareRes = await fetch(url, { headers });
+    const html = await shareRes.text();
 
-    const file = infoRes.data?.list?.[0];
-    if (!file) throw new Error("No file found");
+    const uk = html.match(/uk\s*=\s*"(\d+)"/)[1];
+    const shareid = html.match(/shareid\s*=\s*"(\d+)"/)[1];
+    const sign = html.match(/sign\s*=\s*"([a-zA-Z0-9]+)"/)[1];
+    const timestamp = html.match(/timestamp\s*=\s*"(\d+)"/)[1];
+    const fsid = html.match(/fs_id\":(\d+)/)[1];
 
-    const { path, uk, shareid } = file;
+    const downloadUrl = `https://data.terabox.com/rest/2.0/share/download?method=locatedownload&app_id=250528&shareid=${shareid}&uk=${uk}&sign=${sign}&timestamp=${timestamp}&fid_list=[${fsid}]`;
 
-    const downloadRes = await axios.get(
-      "https://api.terabox.com/rest/2.0/share/download",
-      {
-        params: {
-          app_id: "250528",
-          method: "locatedownload",
-          path,
-          uk,
-          shareid,
-        },
-        headers: {
-          "User-Agent": USER_AGENT,
-        },
-      }
-    );
+    const apiRes = await fetch(downloadUrl, { headers });
+    const data = await apiRes.json();
 
-    const dlink = downloadRes.data?.list?.[0]?.dlink;
-    if (!dlink) throw new Error("Failed to get download link");
+    if (data?.list?.[0]?.dlink) {
+      return res.status(200).json({ direct_link: data.list[0].dlink });
+    } else {
+      return res.status(500).json({ error: 'Failed to fetch download link', response: data });
+    }
 
-    return res.status(200).json({
-      filename: file.server_filename,
-      size: file.size,
-      download: dlink,
-    });
   } catch (err) {
-    return res.status(500).json({ error: err.message || "Internal error" });
+    return res.status(500).json({ error: 'Something went wrong', details: err.message });
   }
 }
