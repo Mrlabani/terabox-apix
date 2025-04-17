@@ -1,6 +1,8 @@
-// File: api/stream.js (for Vercel)
 const axios = require('axios');
 const { URL } = require('url');
+const stream = require('stream');
+const { promisify } = require('util');
+const pipe = promisify(stream.pipeline);
 
 const VALID_DOMAINS = [
   'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com',
@@ -13,7 +15,7 @@ const headers = {
   'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/92.0.4515.159 Mobile Safari/537.36'
 };
 
-async function fetchStreamURL(url) {
+async function fetchDownloadLink(url) {
   try {
     const parsed = new URL(url);
     const domainValid = VALID_DOMAINS.some(domain => parsed.hostname.includes(domain));
@@ -39,18 +41,18 @@ async function fetchStreamURL(url) {
     const file = files[0];
     const name = file.server_filename;
     const fs_id = file.fs_id;
-    const streamAPI = `https://www.terabox.com/api/fastdownload?app_id=250528&shorturl=${surl}&fs_id=${fs_id}`;
-    const streamRes = await axios.get(streamAPI, { headers });
+    const downloadAPI = `https://www.terabox.com/api/fastdownload?app_id=250528&shorturl=${surl}&fs_id=${fs_id}`;
+    const downloadRes = await axios.get(downloadAPI, { headers });
 
-    if (!streamRes.data.urls || streamRes.data.urls.length === 0) {
-      return { status: 'error', message: 'Could not fetch stream URL', credit: '@Labani' };
+    if (!downloadRes.data.urls || downloadRes.data.urls.length === 0) {
+      return { status: 'error', message: 'Could not fetch download link', credit: '@Labani' };
     }
 
     return {
       status: 'success',
       credit: '@Labani',
       filename: name,
-      stream_url: streamRes.data.urls[0].url
+      download_url: downloadRes.data.urls[0].url
     };
   } catch (err) {
     return { status: 'error', message: err.message, credit: '@Labani' };
@@ -63,6 +65,26 @@ module.exports = async (req, res) => {
     return res.status(400).json({ status: 'error', message: 'Missing URL', credit: '@Labani' });
   }
 
-  const result = await fetchStreamURL(url);
-  res.status(result.status === 'success' ? 200 : 400).json(result);
+  const result = await fetchDownloadLink(url);
+
+  if (result.status === 'error') {
+    return res.status(400).json(result);
+  }
+
+  // Proxy the file download
+  try {
+    const downloadStream = await axios.get(result.download_url, {
+      headers: { ...headers, 'Accept-Encoding': 'gzip, deflate, br' },
+      responseType: 'stream'
+    });
+
+    // Set the content type and filename header
+    res.setHeader('Content-Type', downloadStream.headers['content-type']);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+
+    // Stream the file to the response
+    await pipe(downloadStream.data, res);
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: 'Error proxying the download', credit: '@Labani' });
+  }
 };
