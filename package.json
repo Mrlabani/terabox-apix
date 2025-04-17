@@ -1,8 +1,20 @@
 {
-  "name": "terabox-api",
+  "name": "terabox-downloader-api",
   "version": "1.0.0",
-  "type": "module",
+  "description": "A simple Node.js API to get direct download links from Terabox shared URLs",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
-    "axios": "^1.6.0"
-  }
+    "node-fetch": "^2.6.1",
+    "next": "^12.0.7"
+  },
+  "engines": {
+    "node": "14.x"
+  },
+  "author": "",
+  "license": "ISC"
 }
