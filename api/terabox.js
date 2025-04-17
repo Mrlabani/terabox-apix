@@ -20,6 +20,7 @@ async function getDirectLink(url) {
       return { status: 'error', message: 'Invalid TeraBox domain', credit: '@Labani' };
     }
 
+    // Try to follow redirect to get surl
     const res = await axios.get(url, { headers, maxRedirects: 5 });
     const realUrl = res.request.res.responseUrl;
     const surlMatch = realUrl.match(/surl=([a-zA-Z0-9_-]+)/);
@@ -33,29 +34,24 @@ async function getDirectLink(url) {
     const meta = await axios.get(apiUrl, { headers });
 
     if (!meta.data.list || meta.data.list.length === 0) {
-      return { status: 'error', message: 'No file list found', credit: '@Labani' };
+      return { status: 'error', message: 'No files found', credit: '@Labani' };
     }
 
-    const links = await Promise.all(meta.data.list.map(async file => {
-      const fs_id = file.fs_id;
-      const name = file.server_filename;
-      const dlinkApi = `https://www.terabox.com/api/fastdownload?app_id=250528&shorturl=${surl}&fs_id=${fs_id}`;
-      const dlinkRes = await axios.get(dlinkApi, { headers });
-
-      if (dlinkRes.data.urls && dlinkRes.data.urls.length > 0) {
-        return { name, direct_link: dlinkRes.data.urls[0].url };
-      }
-      return null;
+    const files = meta.data.list.map(file => ({
+      name: file.server_filename,
+      size: file.size,
+      fs_id: file.fs_id
     }));
 
     return {
       status: 'success',
       credit: '@Labani',
-      files: links.filter(link => link !== null)
+      surl,
+      files
     };
 
-  } catch (error) {
-    return { status: 'error', message: error.message, credit: '@Labani' };
+  } catch (err) {
+    return { status: 'error', message: err.message, credit: '@Labani' };
   }
 }
 
@@ -71,10 +67,9 @@ module.exports = async (req, res) => {
   }
 
   if (!url) {
-    return res.status(400).json({ status: 'error', message: 'Missing TeraBox URL', credit: '@Labani' });
+    return res.status(400).json({ status: 'error', message: 'Missing URL', credit: '@Labani' });
   }
 
   const result = await getDirectLink(url);
-  const statusCode = result.status === 'success' ? 200 : 400;
-  res.status(statusCode).json(result);
+  res.status(result.status === 'success' ? 200 : 400).json(result);
 };
