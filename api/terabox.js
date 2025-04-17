@@ -1,90 +1,140 @@
 const axios = require('axios');
 const { URL } = require('url');
-const stream = require('stream');
-const { promisify } = require('util');
-const pipe = promisify(stream.pipeline);
 
-const VALID_DOMAINS = [
-  'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com',
-  'momerybox.com', 'teraboxapp.com', '1024tera.com',
-  'terabox.app', 'gibibox.com', 'goaibox.com',
-  'terasharelink.com', 'teraboxlink.com', 'terafileshare.com'
-];
+// Check if URL matches any of the given patterns
+function checkUrlPatterns(url) {
+    const patterns = [
+        /ww\.mirrobox\.com/,
+        /www\.nephobox\.com/,
+        /freeterabox\.com/,
+        /www\.freeterabox\.com/,
+        /1024tera\.com/,
+        /4funbox\.co/,
+        /www\.4funbox\.com/,
+        /mirrobox\.com/,
+        /nephobox\.com/,
+        /terabox\.app/,
+        /terabox\.com/,
+        /www\.terabox\.ap/,
+        /www\.terabox\.com/,
+        /www\.1024tera\.co/,
+        /www\.momerybox\.com/,
+        /teraboxapp\.com/,
+        /momerybox\.com/,
+        /tibibox\.com/,
+        /www\.tibibox\.com/,
+        /www\.teraboxapp\.com/
+    ];
 
-const headers = {
-  'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/92.0.4515.159 Mobile Safari/537.36'
-};
-
-async function fetchDownloadLink(url) {
-  try {
-    const parsed = new URL(url);
-    const domainValid = VALID_DOMAINS.some(domain => parsed.hostname.includes(domain));
-    if (!domainValid) {
-      return { status: 'error', message: 'Invalid TeraBox domain', credit: '@Labani' };
-    }
-
-    const res = await axios.get(url, { headers, maxRedirects: 5 });
-    const finalUrl = res.request.res.responseUrl;
-    const surlMatch = finalUrl.match(/surl=([a-zA-Z0-9_-]+)/);
-    if (!surlMatch) {
-      return { status: 'error', message: 'Could not extract surl', credit: '@Labani' };
-    }
-    const surl = surlMatch[1];
-    const listAPI = `https://www.terabox.com/share/list?app_id=250528&shorturl=${surl}&root=1`;
-    const listRes = await axios.get(listAPI, { headers });
-
-    const files = listRes.data.list || [];
-    if (files.length === 0) {
-      return { status: 'error', message: 'No files found in the folder', credit: '@Labani' };
-    }
-
-    const file = files[0];
-    const name = file.server_filename;
-    const fs_id = file.fs_id;
-    const downloadAPI = `https://www.terabox.com/api/fastdownload?app_id=250528&shorturl=${surl}&fs_id=${fs_id}`;
-    const downloadRes = await axios.get(downloadAPI, { headers });
-
-    if (!downloadRes.data.urls || downloadRes.data.urls.length === 0) {
-      return { status: 'error', message: 'Could not fetch download link', credit: '@Labani' };
-    }
-
-    return {
-      status: 'success',
-      credit: '@Labani',
-      filename: name,
-      download_url: downloadRes.data.urls[0].url
-    };
-  } catch (err) {
-    return { status: 'error', message: err.message, credit: '@Labani' };
-  }
+    return patterns.some(pattern => pattern.test(url));
 }
 
+// Extract URLs from a given string
+function getUrlsFromString(string) {
+    const pattern = /https?:\/\/\S+/g;
+    const urls = [...string.match(pattern) || []].filter(url => checkUrlPatterns(url));
+    return urls.length > 0 ? urls[0] : [];
+}
+
+// Find the text between two strings
+function findBetween(data, first, last) {
+    const startIdx = data.indexOf(first);
+    if (startIdx === -1) return null;
+    const endIdx = data.indexOf(last, startIdx + first.length);
+    return endIdx === -1 ? null : data.substring(startIdx + first.length, endIdx);
+}
+
+// Extract the "surl" parameter from the URL
+function extractSurlFromUrl(url) {
+    const parsedUrl = new URL(url);
+    const surl = parsedUrl.searchParams.get('surl');
+    return surl || false;
+}
+
+// Get data from the URL
+async function getData(url) {
+    let netloc = new URL(url).hostname;
+    url = url.replace(netloc, '1024terabox.com');
+    
+    try {
+        let response = await axios.get(url);
+        if (response.status !== 200) return false;
+        
+        const defaultThumbnail = findBetween(response.data, 'og:image" content="', '"');
+        
+        const headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Content-Type": "application/json",
+            "Origin": "https://ytshorts.savetube.me",
+            "Alt-Used": "ytshorts.savetube.me",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin"
+        };
+        
+        response = await axios.post('https://ytshorts.savetube.me/api/v1/terabox-downloader', {
+            url: url
+        }, { headers });
+
+        if (response.status !== 200) return false;
+        
+        const responses = response.data.response || [];
+        if (responses.length === 0) return false;
+        
+        const resolutions = responses[0].resolutions || {};
+        const download = resolutions['Fast Download'] || '';
+        const video = resolutions['HD Video'] || '';
+        
+        response = await axios.head(video);
+        const contentLength = response.headers['content-length'] || 0;
+        
+        let fname = null;
+        const contentDisposition = response.headers['content-disposition'];
+        if (contentDisposition) {
+            const match = /filename="(.+)"/.exec(contentDisposition);
+            fname = match ? match[1] : null;
+        }
+        
+        response = await axios.head(download);
+        const directLink = response.headers['location'];
+        
+        return {
+            file_name: fname || null,
+            link: video || null,
+            direct_link: directLink || download || null,
+            thumb: defaultThumbnail || null,
+            size: contentLength ? getFormattedSize(parseInt(contentLength)) : null,
+            sizebytes: contentLength ? parseInt(contentLength) : null
+        };
+    } catch (error) {
+        console.error('Error fetching data:', error);
+        return false;
+    }
+}
+
+// Convert size to a human-readable format
+function getFormattedSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + sizes[i];
+}
+
+// Define API endpoint
 module.exports = async (req, res) => {
-  let url = req.query.url || (req.body && req.body.url);
-  if (!url) {
-    return res.status(400).json({ status: 'error', message: 'Missing URL', credit: '@Labani' });
-  }
+    const { url } = req.query;
+    
+    if (!url) {
+        return res.status(400).json({ error: 'URL parameter is required' });
+    }
 
-  const result = await fetchDownloadLink(url);
+    const data = await getData(url);
 
-  if (result.status === 'error') {
-    return res.status(400).json(result);
-  }
+    if (!data) {
+        return res.status(500).json({ error: 'Failed to retrieve data for the given URL' });
+    }
 
-  // Proxy the file download
-  try {
-    const downloadStream = await axios.get(result.download_url, {
-      headers: { ...headers, 'Accept-Encoding': 'gzip, deflate, br' },
-      responseType: 'stream'
-    });
-
-    // Set the content type and filename header
-    res.setHeader('Content-Type', downloadStream.headers['content-type']);
-    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-
-    // Stream the file to the response
-    await pipe(downloadStream.data, res);
-  } catch (err) {
-    return res.status(500).json({ status: 'error', message: 'Error proxying the download', credit: '@Labani' });
-  }
+    res.json(data);
 };
