@@ -1,11 +1,15 @@
 {
   "name": "terabox-api",
   "version": "1.0.0",
+  "description": "API for Terabox data retrieval",
   "main": "index.js",
-  "scripts": {
-    "start": "node api/index.js"
-  },
   "dependencies": {
-    "axios": "^0.26.0"
-  }
+    "axios": "^0.21.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "vercel dev"
+  },
+  "author": "",
+  "license": "ISC"
 }
